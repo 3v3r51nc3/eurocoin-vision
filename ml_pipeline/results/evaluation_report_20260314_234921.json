@@ -1,0 +1,75 @@
+{
+  "created_at": "2026-03-14T23:49:21",
+  "device": "cpu",
+  "weights": {
+    "stage1": "eurocoin-vision\\model_weights\\stage1\\stage1_yolov8n_best.pt",
+    "stage2": "eurocoin-vision\\model_weights\\stage2\\stage2_resnet18_checkpoint.pt",
+    "stage3_manifest": "eurocoin-vision\\model_weights\\stage3\\stage3_resnet18_hierarchical.yaml",
+    "stage3_by_material": {
+      "bronze": "eurocoin-vision\\model_weights\\stage3_bronze\\stage3_resnet18_bronze_checkpoint.pt",
+      "gold": "eurocoin-vision\\model_weights\\stage3_gold\\stage3_resnet18_gold_checkpoint.pt",
+      "bicolor": "eurocoin-vision\\model_weights\\stage3_bicolor\\stage3_resnet18_bicolor_checkpoint.pt"
+    }
+  },
+  "stage1_detector": {
+    "split_used": "test",
+    "metrics": {
+      "metrics/precision(B)": 0.9882293926170129,
+      "metrics/recall(B)": 0.9994953865677978,
+      "metrics/mAP50(B)": 0.992440476190476,
+      "metrics/mAP50-95(B)": 0.9254345056750012,
+      "fitness": 0.9254345056750012
+    }
+  },
+  "classifiers_on_gt_boxes": {
+    "split_used": "test",
+    "objects_evaluated": 168,
+    "stage2_material_accuracy": 0.9047619047619048,
+    "stage3_denomination_accuracy_oracle_material": 0.7559523809523809,
+    "stage3_denomination_accuracy_hierarchical": 0.7083333333333334,
+    "per_material_hierarchical_accuracy": {
+      "bicolor": 0.8461538461538461,
+      "bronze": 0.5384615384615384,
+      "gold": 0.7532467532467533
+    }
+  },
+  "full_pipeline": {
+    "split_used": "test",
+    "images_evaluated": 15,
+    "objects_ground_truth": 168,
+    "objects_predicted": 165,
+    "matching_iou_threshold": 0.5,
+    "detection": {
+      "precision": 0.9272727272727272,
+      "recall": 0.9107142857142857,
+      "f1": 0.918918918918919,
+      "mean_iou_matched": 0.9438348403111642,
+      "tp": 153,
+      "fp": 12,
+      "fn": 15
+    },
+    "classification_on_matched_detections": {
+      "stage2_material_accuracy": 0.934640522875817,
+      "stage3_denomination_accuracy": 0.738562091503268
+    },
+    "end_to_end": {
+      "precision": 0.6848484848484848,
+      "recall": 0.6726190476190477,
+      "f1": 0.6786786786786787,
+      "exact_image_match_rate": 0.13333333333333333,
+      "tp_correct_coin": 113,
+      "fp": 52,
+      "fn": 55
+    },
+    "per_class_recall": {
+      "10_cent": 0.7692307692307693,
+      "1_cent": 0.125,
+      "1_euro": 0.8095238095238095,
+      "20_cent": 0.6923076923076923,
+      "2_cent": 0.7222222222222222,
+      "2_euro": 0.7777777777777778,
+      "50_cent": 0.64,
+      "5_cent": 0.7222222222222222
+    }
+  }
+}

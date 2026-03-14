@@ -145,9 +145,9 @@ Raw denomination counts:
 
 The split is shared across all stages:
 
-- train: `76` images
-- val: `9` images
-- test: `11` images
+- train: `67` images
+- val: `14` images
+- test: `15` images
 
 #### Stage 1 dataset
 
@@ -230,10 +230,11 @@ Current source configuration:
 
 - base model: `yolov8n.pt`
 - image size: `640`
-- batch size: `16`
+- batch size: `32`
+- epochs: `64`
 - workers: `2`
 
-The notebook source currently defines `18` epochs in the end-to-end pipeline cell, while the recorded experiment stored in `ml_pipeline/results/train_model_with_results.json` used `8` epochs for the published Stage 1 run.
+The notebook source currently defines `18` epochs in the end-to-end pipeline cell, and this value can be adjusted per run.
 
 Published artifact:
 
@@ -254,17 +255,15 @@ Model details:
 
 Training data is produced by cropping every annotated Stage 2 box into an `ImageFolder` dataset.
 
-Current source defaults for the classifier trainer:
-
-- epochs: `5`
+Current source configuration:
+- epochs: `64`
 - batch size: `32`
 
-Recorded experiment in `train_model_with_results.json`:
+Current Stage 2 crop split sizes (from `ml_pipeline/datasets/stage2` labels):
 
-- epochs: `24`
-- train samples: `701`
-- val samples: `111`
-- test samples: `105`
+- train samples: `653`
+- val samples: `96`
+- test samples: `168`
 
 Published artifact:
 
@@ -273,6 +272,10 @@ Published artifact:
 ### Stage 3 - Hierarchical Denomination Classifiers
 
 Defined trainer: `Stage3HierarchicalTrainer`
+
+Current source configuration:
+- epochs: `64`
+- batch size: `32`
 
 Instead of one 8-class classifier, Stage 3 trains three material-specific ResNet18 models:
 
@@ -294,9 +297,9 @@ Recorded training set sizes from the repository:
 
 | Stage 3 subset | Train | Val | Test |
 | --- | ---: | ---: | ---: |
-| Bronze | 257 | 47 | 28 |
-| Gold | 288 | 42 | 53 |
-| Bicolor | 156 | 22 | 24 |
+| Bronze | 243 | 37 | 52 |
+| Gold | 267 | 39 | 77 |
+| Bicolor | 143 | 20 | 39 |
 
 ### Classification Augmentation
 
@@ -311,35 +314,82 @@ The classification pipeline applies augmentation during training:
 
 ## 7. Evaluation
 
-Evaluation is implemented inside the training notebook:
+Evaluation is implemented in `ml_pipeline/evaluate_model.ipynb`, which loads published checkpoints from `model_weights/` and reports:
 
-- Stage 1 uses `YOLO(...).val(...)` on the exported test split
-- Stage 2 and Stage 3 evaluate with classification loss and accuracy on held-out test crops
+- Stage 1 detector quality (`YOLO.val`)
+- classifier quality on ground-truth boxes (to isolate classification from localization)
+- full pipeline quality (detection + classification together) with IoU matching at `0.5`
 
-Recorded metrics from `ml_pipeline/results/train_model_with_results.json`:
+Latest report:
 
-| Stage | Model | Task | Test metrics |
-| --- | --- | --- | --- |
-| Stage 1 | YOLOv8n | coin detection | precision `1.000`, recall `0.546`, mAP50 `0.905`, mAP50-95 `0.832` |
-| Stage 2 | ResNet18 | material classification | test loss `0.3777`, test accuracy `0.8667` |
-| Stage 3 bronze | ResNet18 | `1c` vs `2c` vs `5c` | test loss `0.9571`, test accuracy `0.6071` |
-| Stage 3 gold | ResNet18 | `10c` vs `20c` vs `50c` | test loss `0.5640`, test accuracy `0.7925` |
-| Stage 3 bicolor | ResNet18 | `1EUR` vs `2EUR` | test loss `0.2138`, test accuracy `0.9167` |
+- `ml_pipeline/results/evaluation_report_20260314_234921.json`
+- created at: `2026-03-14T23:49:21`
+- device: `CPU` (`torch-2.10.0+cpu`)
+- evaluated split: `test` (`15` images, `168` coin instances)
 
-Two points are important when reading these numbers:
+### 7.1 Stage Metrics
 
-- the repository currently records per-stage metrics rather than a full end-to-end pipeline benchmark
-- Stage 1 recall is the main bottleneck, because missed detections cannot be recovered by later classifiers
+| Component | Metric | Value |
+| --- | --- | ---: |
+| Stage 1 detector | precision | `0.9882` |
+| Stage 1 detector | recall | `0.9995` |
+| Stage 1 detector | mAP50 | `0.9924` |
+| Stage 1 detector | mAP50-95 | `0.9254` |
+| Stage 2 on GT boxes | material accuracy | `0.9048` |
+| Stage 3 on GT boxes (oracle material) | denomination accuracy | `0.7560` |
+| Stage 3 on GT boxes (hierarchical) | denomination accuracy | `0.7083` |
 
-## 8. Known Limitations
+Per-material Stage 3 hierarchical accuracy on GT boxes:
 
-- `TODO: Fix poor Stage-1 recall`
+| Material | Accuracy |
+| --- | ---: |
+| `bicolor` | `0.8462` |
+| `gold` | `0.7532` |
+| `bronze` | `0.5385` |
 
-  Stage 1 currently achieves strong precision but substantially lower recall than is desirable for a counting system. This means some coins are not detected at all, and every missed detection removes that coin from the rest of the pipeline.
+### 7.2 Full Pipeline Metrics
 
-- Bronze coin recognition remains the weakest denomination subset.
+| Area | Metric | Value |
+| --- | --- | ---: |
+| Detection | precision | `0.9273` |
+| Detection | recall | `0.9107` |
+| Detection | F1 | `0.9189` |
+| Detection | mean IoU (matched) | `0.9438` |
+| Detection | TP / FP / FN | `153 / 12 / 15` |
+| Classification on matched detections | Stage 2 material accuracy | `0.9346` |
+| Classification on matched detections | Stage 3 denomination accuracy | `0.7386` |
+| End-to-end | precision | `0.6848` |
+| End-to-end | recall | `0.6726` |
+| End-to-end | F1 | `0.6787` |
+| End-to-end | exact image match rate | `0.1333` |
+| End-to-end | TP / FP / FN | `113 / 52 / 55` |
 
-  The dataset currently contains significantly fewer bronze coins than other categories, which limits the model's ability to learn robust bronze representations. Increasing the number and diversity of bronze coin samples is expected to improve performance.
+Per-class end-to-end recall:
+
+| Class | Recall |
+| --- | ---: |
+| `1_cent` | `0.1250` |
+| `2_cent` | `0.7222` |
+| `5_cent` | `0.7222` |
+| `10_cent` | `0.7692` |
+| `20_cent` | `0.6923` |
+| `50_cent` | `0.6400` |
+| `1_euro` | `0.8095` |
+| `2_euro` | `0.7778` |
+
+## 8. Known Limitations and Priority Work
+
+- Bronze denomination quality is the weakest point.
+
+  Evidence: hierarchical Stage 3 accuracy on GT boxes is only `0.5385` for `bronze`, and end-to-end recall for `1_cent` is `0.1250` (worst class by a wide margin). The dataset currently contains significantly fewer bronze coins than other categories, which limits the model's ability to learn robust bronze representations. Increasing the number and diversity of bronze coin samples is expected to improve performance.
+
+- End-to-end quality drops mainly because of classification errors after correct detection.
+
+  Evidence: detector finds `153` true matches, but only `113` become fully correct denomination predictions. That `40`-coin gap dominates final `FP/FN` growth (`52/55`) and limits exact-image success to `13.33%`.
+
+- Hierarchical routing introduces additional error on top of denomination classification.
+
+  Evidence: Stage 3 denomination accuracy decreases from `0.7560` (oracle material) to `0.7083` (predicted material), indicating non-trivial error propagation from Stage 2 to Stage 3.
 
 ## 9. Repository Structure
 
@@ -365,9 +415,10 @@ eurocoin-vision/
 │   │   ├── stage2/
 │   │   └── stage3/
 │   ├── results/
-│   │   └── train_model_with_results.json
+│   │   ├── evaluation_report_YYYYMMDD_HHMMSS.json
 │   ├── prepare_datasets.py
 │   ├── train_model.ipynb
+│   ├── evaluate_model.ipynb
 │   └── demonstrate_model.ipynb
 └── webapp/
     ├── app.py
@@ -383,20 +434,21 @@ eurocoin-vision/
 - `ml_pipeline/datasets/`: generated YOLO datasets for the three stages
 - `ml_pipeline/prepare_datasets.py`: dataset validation, splitting, relabeling, and `data.yaml` export
 - `ml_pipeline/train_model.ipynb`: end-to-end training workflow
+- `ml_pipeline/evaluate_model.ipynb`: end-to-end evaluation workflow
 - `ml_pipeline/demonstrate_model.ipynb`: notebook-based inference demo using published weights
-- `ml_pipeline/results/train_model_with_results.json`: stored notebook run with training logs and evaluation metrics
+- `ml_pipeline/results/evaluation_report_*.json`: saved structured reports from the evaluation notebook
 - `model_weights/`: published detector and classifier checkpoints used by the app
 - `webapp/`: Streamlit inference application
 - `main.py`: app entrypoint, intended to be launched with `streamlit run main.py`
 
 ## 10. Future Work
 
-- expand the dataset, especially for underrepresented and difficult bronze examples
-- improve Stage 1 recall to reduce missed coins
-- strengthen augmentation and hard-example coverage for denomination classification
-- improve crop quality and coin separation for crowded scenes
-- add end-to-end pipeline evaluation, not only stage-wise metrics
-- optimize the system for faster or real-time inference
+- expand bronze and low-value coin data (`1_cent`, `2_cent`, `5_cent`) with higher intra-class diversity
+- rebalance Stage 3 training with class-aware sampling and/or weighted loss for bronze subsets
+- improve Stage 2 routing robustness to reduce oracle-vs-hierarchical accuracy gap
+- tune Stage 1 inference settings and retraining strategy to reduce residual misses (`15 FN`) and extra detections (`12 FP`)
+- keep reporting standardized end-to-end metrics from `evaluate_model.ipynb` for every model update
+- optimize inference throughput for near real-time usage on CPU
 
 ## Running the Demo
 
