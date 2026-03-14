@@ -111,6 +111,9 @@ OpenCV is not currently used in this repository. Image I/O and visualization are
 
 Dataset source: LATER
 
+The image collection was produced collaboratively by students from the **M1 Vision et Machine Intelligente** program at **Université Paris Cité (2026)** through real-world euro coin photographs captured under varying conditions.  
+The full raw dataset annotation was carried out manually by the project author, including bounding boxes and denomination labels for each visible coin. This annotation work was a key part of the project, since the downstream multi-stage pipeline depends on consistent labeling across detection, material grouping, and denomination recognition tasks.
+
 The raw dataset contains:
 
 - `images/`: source photos
