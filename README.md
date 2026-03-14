@@ -1,6 +1,6 @@
 # eurocoin-vision
 
-`eurocoin-vision` is a deep learning reworking of my earlier classical computer vision project, `Image_projet_money`.
+`eurocoin-vision` is my personal deep learning reinterpretation of **[Image_projet_money](https://github.com/sorooshaghaei/Image_projet_money)** - a group academic project developed during the **M1 Vision et Machine Intelligente** program at **Université Paris Cité**.
 
 The objective is unchanged: given a photo containing euro coins, detect every coin and identify its denomination. The difference is the engineering approach. Instead of hand-crafted image processing, this repository builds the solution as a staged machine learning pipeline using YOLOv8 for detection and ResNet18 classifiers for material and denomination recognition.
 
