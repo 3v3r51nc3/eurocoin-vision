@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageOps
 
 from webapp.config.app_config import AppConfig
 from webapp.models.detection_report import DetectionReport
@@ -23,18 +23,25 @@ class ResultsView:
         annotated_image: np.ndarray,
         report: DetectionReport,
     ) -> None:
-        image_col, result_col = st.columns(2)
+        image_col, result_col = st.columns(2, gap="small")
 
         with image_col:
             st.subheader("Uploaded Image")
-            st.image(input_image, use_container_width=True)
+            st.image(
+                self._resize_to_max(input_image),
+                use_container_width=True,
+            )
 
         with result_col:
             st.subheader("Prediction Result")
-            st.image(annotated_image, use_container_width=True)
+            prediction_bytes = self._image_export_service.to_png_bytes(annotated_image)
+            st.image(
+                self._resize_to_max(Image.fromarray(annotated_image)),
+                use_container_width=True,
+            )
             st.download_button(
                 "Download annotated image",
-                data=self._image_export_service.to_png_bytes(annotated_image),
+                data=prediction_bytes,
                 file_name=f"{Path(uploaded_file_name).stem}_prediction.png",
                 mime="image/png",
             )
@@ -56,3 +63,23 @@ class ResultsView:
 
         st.subheader("Raw Detections")
         st.dataframe(report.detection_table(), use_container_width=True, hide_index=True)
+
+    def _resize_to_max(
+        self,
+        image: Image.Image,
+        max_size: tuple[int, int] = (900, 700),
+    ) -> Image.Image:
+        rgb_image = image.convert("RGB")
+        if rgb_image.width <= max_size[0] and rgb_image.height <= max_size[1]:
+            return rgb_image
+        return ImageOps.contain(
+            rgb_image,
+            max_size,
+            method=self._resample_filter(),
+        )
+
+    @staticmethod
+    def _resample_filter() -> int:
+        if hasattr(Image, "Resampling"):
+            return Image.Resampling.LANCZOS
+        return Image.LANCZOS

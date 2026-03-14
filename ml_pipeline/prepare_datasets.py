@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import random
 import shutil
@@ -51,9 +52,9 @@ class DatasetPreparationConfig:
         return cls(
             layout=ProjectLayout.from_current_file(),
             seed=52,
-            train_ratio=0.8,
-            val_ratio=0.1,
-            test_ratio=0.1,
+            train_ratio=0.7,
+            val_ratio=0.15,
+            test_ratio=0.15,
             image_extensions=frozenset({".jpg", ".jpeg", ".png", ".webp"}),
         )
 
@@ -505,7 +506,7 @@ class StageDatasetExporter:
 
     def _write_yaml(self, stage_dir: Path, class_names: list[str]) -> None:
         yaml_lines = [
-            f"path: {stage_dir.resolve().as_posix()}",
+            "path: .",
             "train: images/train",
             "val: images/val",
             "test: images/test",
@@ -534,16 +535,38 @@ class DatasetPreparationPipeline:
         class_catalog = SourceClassCatalog.load(self._config.layout.raw_notes_path)
         inventory = self._scanner.gather_samples()
         split = self._splitter.split(inventory.matched_samples)
+        source_samples_by_stem = self._index_samples_by_stem(inventory.matched_samples)
 
         self._config.layout.datasets_root.mkdir(parents=True, exist_ok=True)
 
+        stage1_config, stage2_config, stage3_config = self._build_stage_configs(class_catalog)
+        stage1_summary = self._exporter.export(
+            stage_config=stage1_config,
+            split=split,
+            class_catalog=class_catalog,
+        )
+        stage2_split = self._split_from_exported_stage(
+            stage_dir=stage1_summary.output_dir,
+            source_samples_by_stem=source_samples_by_stem,
+        )
+        stage2_summary = self._exporter.export(
+            stage_config=stage2_config,
+            split=stage2_split,
+            class_catalog=class_catalog,
+        )
+        stage3_split = self._split_from_exported_stage(
+            stage_dir=stage2_summary.output_dir,
+            source_samples_by_stem=source_samples_by_stem,
+        )
+        stage3_summary = self._exporter.export(
+            stage_config=stage3_config,
+            split=stage3_split,
+            class_catalog=class_catalog,
+        )
         stage_summaries = {
-            stage_config.name: self._exporter.export(
-                stage_config=stage_config,
-                split=split,
-                class_catalog=class_catalog,
-            )
-            for stage_config in self._build_stage_configs(class_catalog)
+            stage1_config.name: stage1_summary,
+            stage2_config.name: stage2_summary,
+            stage3_config.name: stage3_summary,
         }
 
         return DatasetPreparationReport(
@@ -586,9 +609,133 @@ class DatasetPreparationPipeline:
             ),
         ]
 
+    def _index_samples_by_stem(
+        self,
+        samples: list[DatasetSample],
+    ) -> dict[str, DatasetSample]:
+        source_samples_by_stem: dict[str, DatasetSample] = {}
+        for sample in samples:
+            stem = sample.image_path.stem
+            if stem in source_samples_by_stem:
+                raise RuntimeError(f"Duplicate image stem found in source dataset: {stem}")
+            source_samples_by_stem[stem] = sample
+        return source_samples_by_stem
+
+    def _split_from_exported_stage(
+        self,
+        stage_dir: Path,
+        source_samples_by_stem: dict[str, DatasetSample],
+    ) -> DatasetSplit:
+        return DatasetSplit(
+            train_samples=self._samples_for_split_name(
+                stage_dir=stage_dir,
+                split_name="train",
+                source_samples_by_stem=source_samples_by_stem,
+            ),
+            val_samples=self._samples_for_split_name(
+                stage_dir=stage_dir,
+                split_name="val",
+                source_samples_by_stem=source_samples_by_stem,
+            ),
+            test_samples=self._samples_for_split_name(
+                stage_dir=stage_dir,
+                split_name="test",
+                source_samples_by_stem=source_samples_by_stem,
+            ),
+        )
+
+    def _samples_for_split_name(
+        self,
+        stage_dir: Path,
+        split_name: str,
+        source_samples_by_stem: dict[str, DatasetSample],
+    ) -> list[DatasetSample]:
+        images_dir = stage_dir / "images" / split_name
+        labels_dir = stage_dir / "labels" / split_name
+        if not images_dir.exists() or not labels_dir.exists():
+            raise RuntimeError(
+                f"Stage split directories are missing in {stage_dir}: split={split_name}"
+            )
+
+        image_paths = sorted(
+            path
+            for path in images_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in self._config.image_extensions
+        )
+        label_paths = sorted(path for path in labels_dir.glob("*.txt") if path.is_file())
+
+        image_stems = {path.stem for path in image_paths}
+        label_stems = {path.stem for path in label_paths}
+        if image_stems != label_stems:
+            missing_labels = sorted(image_stems - label_stems)
+            missing_images = sorted(label_stems - image_stems)
+            raise RuntimeError(
+                f"Mismatch between images and labels in {stage_dir} split '{split_name}': "
+                f"missing_labels={missing_labels[:5]}, missing_images={missing_images[:5]}"
+            )
+
+        split_samples: list[DatasetSample] = []
+        for image_path in image_paths:
+            sample = source_samples_by_stem.get(image_path.stem)
+            if sample is None:
+                raise RuntimeError(
+                    f"Stem '{image_path.stem}' from {stage_dir} split '{split_name}' "
+                    "was not found in the source dataset."
+                )
+            split_samples.append(sample)
+        return split_samples
+
+
+def _parse_args() -> argparse.Namespace:
+    defaults = DatasetPreparationConfig.default()
+    parser = argparse.ArgumentParser(
+        description=(
+            "Prepare stage1/stage2/stage3 datasets with a deterministic split chain: "
+            "stage2 uses stage1 split and stage3 uses stage2 split."
+        )
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=defaults.seed,
+        help=f"Random seed for the train/val/test split (default: {defaults.seed}).",
+    )
+    parser.add_argument(
+        "--train-ratio",
+        type=float,
+        default=defaults.train_ratio,
+        help=f"Train split ratio (default: {defaults.train_ratio}).",
+    )
+    parser.add_argument(
+        "--val-ratio",
+        type=float,
+        default=defaults.val_ratio,
+        help=f"Validation split ratio (default: {defaults.val_ratio}).",
+    )
+    parser.add_argument(
+        "--test-ratio",
+        type=float,
+        default=defaults.test_ratio,
+        help=f"Test split ratio (default: {defaults.test_ratio}).",
+    )
+    return parser.parse_args()
+
+
+def _config_from_args(args: argparse.Namespace) -> DatasetPreparationConfig:
+    defaults = DatasetPreparationConfig.default()
+    return DatasetPreparationConfig(
+        layout=defaults.layout,
+        seed=args.seed,
+        train_ratio=args.train_ratio,
+        val_ratio=args.val_ratio,
+        test_ratio=args.test_ratio,
+        image_extensions=defaults.image_extensions,
+    )
+
 
 def main() -> None:
-    pipeline = DatasetPreparationPipeline(DatasetPreparationConfig.default())
+    args = _parse_args()
+    pipeline = DatasetPreparationPipeline(_config_from_args(args))
     report = pipeline.run()
     report.print_console()
 
