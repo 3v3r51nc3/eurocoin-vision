@@ -1,0 +1,2 @@
+Generated YOLO training labels are written here by prepare_dataset.py.
+Do not commit the dataset payload from this directory.

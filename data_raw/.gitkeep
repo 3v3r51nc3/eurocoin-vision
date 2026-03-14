@@ -1,0 +1,3 @@
+This directory stores the source dataset before YOLO conversion.
+Keep raw images in data_raw/images and raw labels in data_raw/labels.
+Actual dataset files are ignored by Git.

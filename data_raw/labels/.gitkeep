@@ -1,0 +1,3 @@
+Put the raw annotation text files here.
+Each file name must match the stem of an image in data_raw/images.
+Missing labels are skipped by prepare_dataset.py.

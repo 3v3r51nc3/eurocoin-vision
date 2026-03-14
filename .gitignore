@@ -1,0 +1,90 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# IDE / editor
+.vscode/
+.idea/
+
+# OS junk
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local config
+.env
+.env.*
+.python-version
+.streamlit/secrets.toml
+
+# Test and tooling cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Packaging / build
+build/
+dist/
+.eggs/
+*.egg-info/
+pip-wheel-metadata/
+
+# YOLO / training outputs
+runs/
+wandb/
+mlruns/
+lightning_logs/
+logs/
+checkpoints/
+weights/
+artifacts/
+predictions/
+exports/
+*.pt
+*.pth
+*.onnx
+*.engine
+*.tflite
+*.torchscript
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Datasets
+data_raw/**
+dataset/**
+
+!data_raw/
+!data_raw/.gitkeep
+!data_raw/images/
+!data_raw/images/.gitkeep
+!data_raw/labels/
+!data_raw/labels/.gitkeep
+
+!dataset/
+!dataset/.gitkeep
+!dataset/images/
+!dataset/images/train/
+!dataset/images/train/.gitkeep
+!dataset/images/val/
+!dataset/images/val/.gitkeep
+!dataset/labels/
+!dataset/labels/train/
+!dataset/labels/train/.gitkeep
+!dataset/labels/val/
+!dataset/labels/val/.gitkeep
