@@ -66,25 +66,6 @@ exports/
 *.temp
 
 # Datasets
-data_raw/**
-dataset/**
-
-!data_raw/
-!data_raw/.gitkeep
-!data_raw/images/
-!data_raw/images/.gitkeep
-!data_raw/labels/
-!data_raw/labels/.gitkeep
-
-!dataset/
-!dataset/.gitkeep
-!dataset/images/
-!dataset/images/train/
-!dataset/images/train/.gitkeep
-!dataset/images/val/
-!dataset/images/val/.gitkeep
-!dataset/labels/
-!dataset/labels/train/
-!dataset/labels/train/.gitkeep
-!dataset/labels/val/
-!dataset/labels/val/.gitkeep
+ml_pipeline/data_raw/**
+ml_pipeline/datasets/**
+!ml_pipeline/data_raw/

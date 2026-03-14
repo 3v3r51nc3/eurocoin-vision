@@ -1,3 +1,0 @@
-Put the original source images here.
-Supported by prepare_dataset.py: .jpg, .jpeg, .png.
-Each image should have a matching .txt label in data_raw/labels.

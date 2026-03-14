@@ -1,3 +1,0 @@
-This directory stores the generated YOLO dataset.
-prepare_dataset.py creates split data here and writes dataset/data.yaml.
-Generated dataset files are ignored by Git.
