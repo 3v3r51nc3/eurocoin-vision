@@ -75,6 +75,25 @@ class DatasetSample:
 
 
 @dataclass(frozen=True)
+class ParsedLabel:
+    source_id: int
+    class_name: str
+    x_center: float
+    y_center: float
+    width: float
+    height: float
+
+    @property
+    def yolo_coords(self) -> list[str]:
+        return [
+            f"{self.x_center:.16f}".rstrip("0").rstrip("."),
+            f"{self.y_center:.16f}".rstrip("0").rstrip("."),
+            f"{self.width:.16f}".rstrip("0").rstrip("."),
+            f"{self.height:.16f}".rstrip("0").rstrip("."),
+        ]
+
+
+@dataclass(frozen=True)
 class SampleInventory:
     matched_samples: list[DatasetSample]
     missing_labels: list[Path]
@@ -310,29 +329,40 @@ class StageDatasetExporter:
         class_catalog: SourceClassCatalog,
     ) -> Counter:
         counts: Counter = Counter()
+        written_image_count = 0
+        written_label_count = 0
 
         for sample in samples:
             parsed_lines = self._parse_label_lines(sample.label_path, class_catalog)
             label_lines = self._build_stage_label_lines(parsed_lines, stage_config)
 
             shutil.copy2(sample.image_path, image_dir / sample.image_path.name)
+            written_image_count += 1
             (label_dir / sample.label_path.name).write_text(
                 "\n".join(label_lines) + ("\n" if label_lines else ""),
                 encoding="utf-8",
             )
+            written_label_count += 1
 
             for line in label_lines:
                 stage_id = int(line.split()[0])
                 counts[stage_config.class_names[stage_id]] += 1
 
+        self._validate_written_split(
+            image_dir=image_dir,
+            label_dir=label_dir,
+            expected_images=written_image_count,
+            expected_labels=written_label_count,
+            counts=counts,
+        )
         return counts
 
     def _parse_label_lines(
         self,
         label_path: Path,
         class_catalog: SourceClassCatalog,
-    ) -> list[tuple[str, list[str]]]:
-        parsed: list[tuple[str, list[str]]] = []
+    ) -> list[ParsedLabel]:
+        parsed: list[ParsedLabel] = []
 
         for line_number, raw_line in enumerate(
             label_path.read_text(encoding="utf-8").splitlines(),
@@ -350,22 +380,111 @@ class StageDatasetExporter:
 
             source_id = int(parts[0])
             class_name = class_catalog.name_for_id(source_id)
-            parsed.append((class_name, parts[1:]))
+            x_center, y_center, width, height = map(float, parts[1:])
+            self._validate_yolo_box(
+                label_path=label_path,
+                line_number=line_number,
+                x_center=x_center,
+                y_center=y_center,
+                width=width,
+                height=height,
+            )
+            parsed.append(
+                ParsedLabel(
+                    source_id=source_id,
+                    class_name=class_name,
+                    x_center=x_center,
+                    y_center=y_center,
+                    width=width,
+                    height=height,
+                )
+            )
 
         return parsed
 
     def _build_stage_label_lines(
         self,
-        parsed_lines: list[tuple[str, list[str]]],
+        parsed_lines: list[ParsedLabel],
         stage_config: StageConfig,
     ) -> list[str]:
         transformed: list[str] = []
 
-        for class_name, coords in parsed_lines:
-            stage_id = stage_config.stage_id_for(class_name)
-            transformed.append(f"{stage_id} {' '.join(coords)}")
+        for parsed_label in parsed_lines:
+            stage_id = stage_config.stage_id_for(parsed_label.class_name)
+            transformed.append(f"{stage_id} {' '.join(parsed_label.yolo_coords)}")
 
         return transformed
+
+    def _validate_yolo_box(
+        self,
+        label_path: Path,
+        line_number: int,
+        x_center: float,
+        y_center: float,
+        width: float,
+        height: float,
+    ) -> None:
+        values = {
+            "x_center": x_center,
+            "y_center": y_center,
+            "width": width,
+            "height": height,
+        }
+        for field_name, value in values.items():
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(
+                    f"Invalid YOLO value in {label_path} at line {line_number}: "
+                    f"{field_name}={value} is outside [0, 1]"
+                )
+
+        if width <= 0.0 or height <= 0.0:
+            raise ValueError(
+                f"Invalid YOLO box in {label_path} at line {line_number}: "
+                f"width={width}, height={height}, expected both > 0"
+            )
+
+        left = x_center - width / 2
+        right = x_center + width / 2
+        top = y_center - height / 2
+        bottom = y_center + height / 2
+        if left < 0.0 or right > 1.0 or top < 0.0 or bottom > 1.0:
+            raise ValueError(
+                f"Invalid YOLO box extent in {label_path} at line {line_number}: "
+                f"box=({left}, {top}, {right}, {bottom}) must stay inside the image"
+            )
+
+    def _validate_written_split(
+        self,
+        image_dir: Path,
+        label_dir: Path,
+        expected_images: int,
+        expected_labels: int,
+        counts: Counter,
+    ) -> None:
+        actual_images = sorted(path for path in image_dir.iterdir() if path.is_file())
+        actual_labels = sorted(path for path in label_dir.glob("*.txt") if path.is_file())
+        if len(actual_images) != expected_images or len(actual_labels) != expected_labels:
+            raise RuntimeError(
+                f"Split write mismatch in {image_dir.parent}: "
+                f"expected images={expected_images}, labels={expected_labels}, "
+                f"got images={len(actual_images)}, labels={len(actual_labels)}"
+            )
+
+        image_stems = {path.stem for path in actual_images}
+        label_stems = {path.stem for path in actual_labels}
+        if image_stems != label_stems:
+            missing_labels = sorted(image_stems - label_stems)
+            missing_images = sorted(label_stems - image_stems)
+            raise RuntimeError(
+                f"Image/label stem mismatch in {image_dir.parent}: "
+                f"missing_labels={missing_labels[:5]}, missing_images={missing_images[:5]}"
+            )
+
+        if actual_images and sum(counts.values()) <= 0:
+            raise RuntimeError(
+                f"No annotation boxes were written for split {image_dir.parent}. "
+                "Refusing to export an empty detection target."
+            )
 
     def _reset_stage_dir(self, stage_dir: Path) -> dict[str, Path]:
         if stage_dir.exists():
@@ -386,7 +505,7 @@ class StageDatasetExporter:
 
     def _write_yaml(self, stage_dir: Path, class_names: list[str]) -> None:
         yaml_lines = [
-            "path: .",
+            f"path: {stage_dir.resolve().as_posix()}",
             "train: images/train",
             "val: images/val",
             "test: images/test",
