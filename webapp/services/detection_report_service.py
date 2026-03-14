@@ -4,30 +4,27 @@ from collections import Counter
 
 from webapp.config.app_config import AppConfig
 from webapp.models.detection_report import DetectionReport
+from webapp.models.pipeline_prediction import PipelinePrediction
 
 
 class DetectionReportService:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
 
-    def build(self, prediction) -> DetectionReport:
+    def build(self, prediction: PipelinePrediction) -> DetectionReport:
         counts: Counter[str] = Counter()
         detection_rows: list[dict[str, str]] = []
 
-        if prediction.boxes is None:
+        if not prediction.detections:
             return DetectionReport([], [], 0, 0)
 
-        names = prediction.names
-        class_ids = prediction.boxes.cls.tolist()
-        confidences = prediction.boxes.conf.tolist()
-
-        for class_id, confidence in zip(class_ids, confidences):
-            label = str(names[int(class_id)])
-            counts[label] += 1
+        for detection in prediction.detections:
+            counts[detection.denomination] += 1
             detection_rows.append(
                 {
-                    "Denomination": self._config.format_label(label),
-                    "Confidence": f"{confidence:.2%}",
+                    "Denomination": self._config.format_label(detection.denomination),
+                    "Material": self._config.format_label(detection.material),
+                    "Confidence": f"{detection.detection_confidence:.2%}",
                 }
             )
 

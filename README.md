@@ -23,6 +23,9 @@ At the moment the repository mainly contains:
 - dataset preparation scripts
 - a training notebook
 
+## TODO
+Fix poor stage 1 recall
+
 ## Dataset
 
 Source dataset: LATER

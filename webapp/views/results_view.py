@@ -22,7 +22,6 @@ class ResultsView:
         input_image: Image.Image,
         annotated_image: np.ndarray,
         report: DetectionReport,
-        weights_path: Path,
     ) -> None:
         image_col, result_col = st.columns(2)
 
@@ -47,8 +46,6 @@ class ResultsView:
             self._config.format_currency(report.total_value_cents),
         )
         metric_col_3.metric("Unique denominations", str(report.unique_denominations))
-
-        st.caption(f"Using weights: {weights_path}")
 
         if not report.has_detections:
             st.warning("The model did not detect any coins in this image.")

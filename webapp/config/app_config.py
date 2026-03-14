@@ -27,6 +27,10 @@ class AppConfig:
         return self._base_dir / "runs"
 
     @property
+    def model_weights_dir(self) -> Path:
+        return self._base_dir / "model_weights"
+
+    @property
     def page_title(self) -> str:
         return "Euro Coin Vision"
 
