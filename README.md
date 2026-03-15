@@ -52,7 +52,7 @@ Three-stage architecture:
 ![Hard case table](assets/screenshots/03_hard_case_table.png)
 ![Evaluation artifact](assets/screenshots/04_evaluation_metrics.png)
 
-Reminder: refresh `assets/screenshots/04_evaluation_metrics.png` using the latest report values from `ml_pipeline/results/evaluation_report_20260315_160709.json`.
+[Evaluation metrics in PROJECT_DETAILS.md](PROJECT_DETAILS.md)
 
 ## Tech Stack
 
