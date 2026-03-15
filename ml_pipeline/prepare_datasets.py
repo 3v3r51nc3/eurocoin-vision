@@ -4,9 +4,12 @@ import argparse
 import json
 import random
 import shutil
+import time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+
+from PIL import Image, ImageOps
 
 
 @dataclass(frozen=True)
@@ -37,6 +40,10 @@ class ProjectLayout:
     def datasets_root(self) -> Path:
         return self.root_dir / "datasets"
 
+    @property
+    def classification_root(self) -> Path:
+        return self.datasets_root
+
 
 @dataclass(frozen=True)
 class DatasetPreparationConfig:
@@ -45,6 +52,7 @@ class DatasetPreparationConfig:
     train_ratio: float
     val_ratio: float
     test_ratio: float
+    shared_stage_split: bool
     image_extensions: frozenset[str]
 
     @classmethod
@@ -55,6 +63,7 @@ class DatasetPreparationConfig:
             train_ratio=0.7,
             val_ratio=0.15,
             test_ratio=0.15,
+            shared_stage_split=False,
             image_extensions=frozenset({".jpg", ".jpeg", ".png", ".webp"}),
         )
 
@@ -148,27 +157,39 @@ class StageExportSummary:
 
 
 @dataclass(frozen=True)
+class ClassificationExportSummary:
+    output_dir: Path
+    train_counts: Counter
+    val_counts: Counter
+    test_counts: Counter
+
+
+@dataclass(frozen=True)
 class DatasetPreparationReport:
     seed: int
     train_ratio: float
     val_ratio: float
     test_ratio: float
-    split: DatasetSplit
+    shared_stage_split: bool
+    stage_splits: dict[str, DatasetSplit]
     inventory: SampleInventory
     stage_summaries: dict[str, StageExportSummary]
+    classification_summaries: dict[str, ClassificationExportSummary]
 
     def print_console(self) -> None:
         print(f"Seed: {self.seed}")
         print(f"Train ratio: {self.train_ratio}")
         print(f"Val ratio: {self.val_ratio}")
         print(f"Test ratio: {self.test_ratio}")
+        print(f"Shared split across stages: {self.shared_stage_split}")
+        stage1_split = self.stage_splits["stage1"]
         print(
             "Matched samples: "
-            f"{len(self.split.train_samples) + len(self.split.val_samples) + len(self.split.test_samples)}"
+            f"{len(stage1_split.train_samples) + len(stage1_split.val_samples) + len(stage1_split.test_samples)}"
         )
-        print(f"Train samples: {len(self.split.train_samples)}")
-        print(f"Val samples: {len(self.split.val_samples)}")
-        print(f"Test samples: {len(self.split.test_samples)}")
+        print(f"Stage1 train samples: {len(stage1_split.train_samples)}")
+        print(f"Stage1 val samples: {len(stage1_split.val_samples)}")
+        print(f"Stage1 test samples: {len(stage1_split.test_samples)}")
         print(f"Missing labels: {len(self.inventory.missing_labels)}")
         print(f"Missing images: {len(self.inventory.missing_images)}")
 
@@ -189,6 +210,23 @@ class DatasetPreparationReport:
             print(f"  train boxes: {sum(summary.train_counts.values())}")
             print(f"  val boxes: {sum(summary.val_counts.values())}")
             print(f"  test boxes: {sum(summary.test_counts.values())}")
+            print("  train classes:")
+            for class_name, count in summary.train_counts.items():
+                print(f"    - {class_name}: {count}")
+            print("  val classes:")
+            for class_name, count in summary.val_counts.items():
+                print(f"    - {class_name}: {count}")
+            print("  test classes:")
+            for class_name, count in summary.test_counts.items():
+                print(f"    - {class_name}: {count}")
+
+        for dataset_name, summary in self.classification_summaries.items():
+            print("")
+            print(f"{dataset_name}:")
+            print(f"  output: {summary.output_dir}")
+            print(f"  train crops: {sum(summary.train_counts.values())}")
+            print(f"  val crops: {sum(summary.val_counts.values())}")
+            print(f"  test crops: {sum(summary.test_counts.values())}")
             print("  train classes:")
             for class_name, count in summary.train_counts.items():
                 print(f"    - {class_name}: {count}")
@@ -337,7 +375,10 @@ class StageDatasetExporter:
             parsed_lines = self._parse_label_lines(sample.label_path, class_catalog)
             label_lines = self._build_stage_label_lines(parsed_lines, stage_config)
 
-            shutil.copy2(sample.image_path, image_dir / sample.image_path.name)
+            self._write_stage_image(
+                source_image_path=sample.image_path,
+                target_image_path=image_dir / sample.image_path.name,
+            )
             written_image_count += 1
             (label_dir / sample.label_path.name).write_text(
                 "\n".join(label_lines) + ("\n" if label_lines else ""),
@@ -487,6 +528,16 @@ class StageDatasetExporter:
                 "Refusing to export an empty detection target."
             )
 
+    def _write_stage_image(self, source_image_path: Path, target_image_path: Path) -> None:
+        with Image.open(source_image_path) as source_image:
+            orientation = int((source_image.getexif() or {}).get(274, 1))
+            if orientation == 1:
+                shutil.copy2(source_image_path, target_image_path)
+                return
+
+            normalized = ImageOps.exif_transpose(source_image).convert("RGB")
+            normalized.save(target_image_path)
+
     def _reset_stage_dir(self, stage_dir: Path) -> dict[str, Path]:
         if stage_dir.exists():
             shutil.rmtree(stage_dir)
@@ -519,54 +570,257 @@ class StageDatasetExporter:
         (stage_dir / "data.yaml").write_text("\n".join(yaml_lines) + "\n", encoding="utf-8")
 
 
+class ClassificationDatasetExporter:
+    def __init__(self, output_root: Path) -> None:
+        self._output_root = output_root
+
+    def export(
+        self,
+        dataset_name: str,
+        stage_config: StageConfig,
+        split: DatasetSplit,
+        class_catalog: SourceClassCatalog,
+    ) -> ClassificationExportSummary:
+        dataset_dir = self._output_root / dataset_name
+        split_roots = self._reset_dataset_dir(dataset_dir, stage_config.class_names)
+
+        train_counts = self._write_split(
+            samples=split.train_samples,
+            split_root=split_roots["train"],
+            stage_config=stage_config,
+            class_catalog=class_catalog,
+        )
+        val_counts = self._write_split(
+            samples=split.val_samples,
+            split_root=split_roots["val"],
+            stage_config=stage_config,
+            class_catalog=class_catalog,
+        )
+        test_counts = self._write_split(
+            samples=split.test_samples,
+            split_root=split_roots["test"],
+            stage_config=stage_config,
+            class_catalog=class_catalog,
+        )
+        return ClassificationExportSummary(
+            output_dir=dataset_dir,
+            train_counts=train_counts,
+            val_counts=val_counts,
+            test_counts=test_counts,
+        )
+
+    def _write_split(
+        self,
+        samples: list[DatasetSample],
+        split_root: Path,
+        stage_config: StageConfig,
+        class_catalog: SourceClassCatalog,
+    ) -> Counter:
+        counts: Counter = Counter()
+        for sample in samples:
+            parsed_labels = self._parse_label_lines(sample.label_path, class_catalog)
+            if not parsed_labels:
+                continue
+
+            with Image.open(sample.image_path) as source_image:
+                # Normalize EXIF orientation so YOLO coordinates and pixel data share the same frame.
+                image = ImageOps.exif_transpose(source_image).convert("RGB")
+                image_width, image_height = image.size
+
+                for object_index, parsed_label in enumerate(parsed_labels):
+                    stage_id = stage_config.stage_id_for(parsed_label.class_name)
+                    class_name = stage_config.class_names[stage_id]
+                    left, top, right, bottom = self._to_square_pixel_box(
+                        x_center=parsed_label.x_center,
+                        y_center=parsed_label.y_center,
+                        box_width=parsed_label.width,
+                        box_height=parsed_label.height,
+                        image_width=image_width,
+                        image_height=image_height,
+                    )
+                    if right <= left or bottom <= top:
+                        continue
+
+                    crop = image.crop((left, top, right, bottom))
+                    image_key = f"{sample.image_path.stem}_{sample.image_path.suffix.lower().lstrip('.')}"
+                    crop_name = f"{image_key}_{object_index}.png"
+                    crop.save(split_root / class_name / crop_name)
+                    counts[class_name] += 1
+
+        if samples and sum(counts.values()) <= 0:
+            raise RuntimeError(
+                f"No crops were exported for split directory: {split_root}. "
+                "Check source labels and YOLO boxes."
+            )
+        return counts
+
+    def _parse_label_lines(
+        self,
+        label_path: Path,
+        class_catalog: SourceClassCatalog,
+    ) -> list[ParsedLabel]:
+        parsed: list[ParsedLabel] = []
+        for line_number, raw_line in enumerate(
+            label_path.read_text(encoding="utf-8").splitlines(),
+            start=1,
+        ):
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            parts = line.split()
+            if len(parts) != 5:
+                raise ValueError(
+                    f"Invalid YOLO label format in {label_path} at line {line_number}: {raw_line!r}"
+                )
+
+            source_id = int(parts[0])
+            class_name = class_catalog.name_for_id(source_id)
+            x_center, y_center, width, height = map(float, parts[1:])
+            self._validate_yolo_box(
+                label_path=label_path,
+                line_number=line_number,
+                x_center=x_center,
+                y_center=y_center,
+                width=width,
+                height=height,
+            )
+            parsed.append(
+                ParsedLabel(
+                    source_id=source_id,
+                    class_name=class_name,
+                    x_center=x_center,
+                    y_center=y_center,
+                    width=width,
+                    height=height,
+                )
+            )
+        return parsed
+
+    def _validate_yolo_box(
+        self,
+        label_path: Path,
+        line_number: int,
+        x_center: float,
+        y_center: float,
+        width: float,
+        height: float,
+    ) -> None:
+        values = {
+            "x_center": x_center,
+            "y_center": y_center,
+            "width": width,
+            "height": height,
+        }
+        for field_name, value in values.items():
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(
+                    f"Invalid YOLO value in {label_path} at line {line_number}: "
+                    f"{field_name}={value} is outside [0, 1]"
+                )
+
+        if width <= 0.0 or height <= 0.0:
+            raise ValueError(
+                f"Invalid YOLO box in {label_path} at line {line_number}: "
+                f"width={width}, height={height}, expected both > 0"
+            )
+
+        left = x_center - width / 2
+        right = x_center + width / 2
+        top = y_center - height / 2
+        bottom = y_center + height / 2
+        if left < 0.0 or right > 1.0 or top < 0.0 or bottom > 1.0:
+            raise ValueError(
+                f"Invalid YOLO box extent in {label_path} at line {line_number}: "
+                f"box=({left}, {top}, {right}, {bottom}) must stay inside the image"
+            )
+
+    def _to_square_pixel_box(
+        self,
+        x_center: float,
+        y_center: float,
+        box_width: float,
+        box_height: float,
+        image_width: int,
+        image_height: int,
+    ) -> tuple[int, int, int, int]:
+        side_pixels = int(round(max(box_width * image_width, box_height * image_height)))
+        side_pixels = max(1, min(side_pixels, image_width, image_height))
+
+        center_x_pixels = x_center * image_width
+        center_y_pixels = y_center * image_height
+        left = int(round(center_x_pixels - side_pixels / 2))
+        top = int(round(center_y_pixels - side_pixels / 2))
+
+        max_left = image_width - side_pixels
+        max_top = image_height - side_pixels
+        left = min(max(left, 0), max_left)
+        top = min(max(top, 0), max_top)
+
+        right = left + side_pixels
+        bottom = top + side_pixels
+        return left, top, right, bottom
+
+    def _reset_dataset_dir(self, dataset_dir: Path, class_names: list[str]) -> dict[str, Path]:
+        if dataset_dir.exists():
+            shutil.rmtree(dataset_dir)
+
+        split_roots = {
+            "train": dataset_dir / "train",
+            "val": dataset_dir / "val",
+            "test": dataset_dir / "test",
+        }
+        for split_root in split_roots.values():
+            for class_name in class_names:
+                (split_root / class_name).mkdir(parents=True, exist_ok=True)
+        return split_roots
+
+
 class DatasetPreparationPipeline:
+    _STAGE_SPLIT_OFFSETS = {
+        "stage1": 0,
+        "stage2": 101,
+        "stage3": 202,
+    }
+
     def __init__(self, config: DatasetPreparationConfig) -> None:
         self._config = config
         self._scanner = SourceDatasetScanner(config)
-        self._splitter = DatasetSplitter(
-            seed=config.seed,
-            train_ratio=config.train_ratio,
-            val_ratio=config.val_ratio,
-            test_ratio=config.test_ratio,
+        self._stage_exporter = StageDatasetExporter(datasets_root=config.layout.datasets_root)
+        self._classification_exporter = ClassificationDatasetExporter(
+            output_root=config.layout.classification_root
         )
-        self._exporter = StageDatasetExporter(datasets_root=config.layout.datasets_root)
 
     def run(self) -> DatasetPreparationReport:
         class_catalog = SourceClassCatalog.load(self._config.layout.raw_notes_path)
         inventory = self._scanner.gather_samples()
-        split = self._splitter.split(inventory.matched_samples)
-        source_samples_by_stem = self._index_samples_by_stem(inventory.matched_samples)
+        stage_splits = self._build_stage_splits(inventory.matched_samples)
 
+        self._cleanup_stale_outputs()
         self._config.layout.datasets_root.mkdir(parents=True, exist_ok=True)
 
         stage1_config, stage2_config, stage3_config = self._build_stage_configs(class_catalog)
-        stage1_summary = self._exporter.export(
+        stage1_summary = self._stage_exporter.export(
             stage_config=stage1_config,
-            split=split,
+            split=stage_splits["stage1"],
             class_catalog=class_catalog,
         )
-        stage2_split = self._split_from_exported_stage(
-            stage_dir=stage1_summary.output_dir,
-            source_samples_by_stem=source_samples_by_stem,
-        )
-        stage2_summary = self._exporter.export(
-            stage_config=stage2_config,
-            split=stage2_split,
-            class_catalog=class_catalog,
-        )
-        stage3_split = self._split_from_exported_stage(
-            stage_dir=stage2_summary.output_dir,
-            source_samples_by_stem=source_samples_by_stem,
-        )
-        stage3_summary = self._exporter.export(
-            stage_config=stage3_config,
-            split=stage3_split,
-            class_catalog=class_catalog,
-        )
-        stage_summaries = {
+        detection_stage_summaries = {
             stage1_config.name: stage1_summary,
-            stage2_config.name: stage2_summary,
-            stage3_config.name: stage3_summary,
+        }
+        classification_summaries = {
+            "stage2_material": self._classification_exporter.export(
+                dataset_name="stage2_material",
+                stage_config=stage2_config,
+                split=stage_splits["stage2"],
+                class_catalog=class_catalog,
+            ),
+            "stage3_denomination": self._classification_exporter.export(
+                dataset_name="stage3_denomination",
+                stage_config=stage3_config,
+                split=stage_splits["stage3"],
+                class_catalog=class_catalog,
+            ),
         }
 
         return DatasetPreparationReport(
@@ -574,9 +828,11 @@ class DatasetPreparationPipeline:
             train_ratio=self._config.train_ratio,
             val_ratio=self._config.val_ratio,
             test_ratio=self._config.test_ratio,
-            split=split,
+            shared_stage_split=self._config.shared_stage_split,
+            stage_splits=stage_splits,
             inventory=inventory,
-            stage_summaries=stage_summaries,
+            stage_summaries=detection_stage_summaries,
+            classification_summaries=classification_summaries,
         )
 
     def _build_stage_configs(self, class_catalog: SourceClassCatalog) -> list[StageConfig]:
@@ -604,94 +860,74 @@ class DatasetPreparationPipeline:
                 name="stage3",
                 class_names=class_catalog.class_names,
                 name_to_stage_id={
-                    class_name: class_id for class_id, class_name in class_catalog.id_to_name.items()
+                    class_name: index for index, class_name in enumerate(class_catalog.class_names)
                 },
             ),
         ]
 
-    def _index_samples_by_stem(
-        self,
-        samples: list[DatasetSample],
-    ) -> dict[str, DatasetSample]:
-        source_samples_by_stem: dict[str, DatasetSample] = {}
-        for sample in samples:
-            stem = sample.image_path.stem
-            if stem in source_samples_by_stem:
-                raise RuntimeError(f"Duplicate image stem found in source dataset: {stem}")
-            source_samples_by_stem[stem] = sample
-        return source_samples_by_stem
+    def _build_stage_splits(self, samples: list[DatasetSample]) -> dict[str, DatasetSplit]:
+        if self._config.shared_stage_split:
+            shared_split = self._split_with_seed(samples, self._config.seed)
+            return {
+                "stage1": shared_split,
+                "stage2": shared_split,
+                "stage3": shared_split,
+            }
 
-    def _split_from_exported_stage(
-        self,
-        stage_dir: Path,
-        source_samples_by_stem: dict[str, DatasetSample],
-    ) -> DatasetSplit:
-        return DatasetSplit(
-            train_samples=self._samples_for_split_name(
-                stage_dir=stage_dir,
-                split_name="train",
-                source_samples_by_stem=source_samples_by_stem,
-            ),
-            val_samples=self._samples_for_split_name(
-                stage_dir=stage_dir,
-                split_name="val",
-                source_samples_by_stem=source_samples_by_stem,
-            ),
-            test_samples=self._samples_for_split_name(
-                stage_dir=stage_dir,
-                split_name="test",
-                source_samples_by_stem=source_samples_by_stem,
-            ),
-        )
-
-    def _samples_for_split_name(
-        self,
-        stage_dir: Path,
-        split_name: str,
-        source_samples_by_stem: dict[str, DatasetSample],
-    ) -> list[DatasetSample]:
-        images_dir = stage_dir / "images" / split_name
-        labels_dir = stage_dir / "labels" / split_name
-        if not images_dir.exists() or not labels_dir.exists():
-            raise RuntimeError(
-                f"Stage split directories are missing in {stage_dir}: split={split_name}"
+        return {
+            stage_name: self._split_with_seed(
+                samples,
+                self._config.seed + self._STAGE_SPLIT_OFFSETS[stage_name],
             )
+            for stage_name in ("stage1", "stage2", "stage3")
+        }
 
-        image_paths = sorted(
-            path
-            for path in images_dir.iterdir()
-            if path.is_file() and path.suffix.lower() in self._config.image_extensions
+    def _split_with_seed(self, samples: list[DatasetSample], seed: int) -> DatasetSplit:
+        splitter = DatasetSplitter(
+            seed=seed,
+            train_ratio=self._config.train_ratio,
+            val_ratio=self._config.val_ratio,
+            test_ratio=self._config.test_ratio,
         )
-        label_paths = sorted(path for path in labels_dir.glob("*.txt") if path.is_file())
+        return splitter.split(samples)
 
-        image_stems = {path.stem for path in image_paths}
-        label_stems = {path.stem for path in label_paths}
-        if image_stems != label_stems:
-            missing_labels = sorted(image_stems - label_stems)
-            missing_images = sorted(label_stems - image_stems)
-            raise RuntimeError(
-                f"Mismatch between images and labels in {stage_dir} split '{split_name}': "
-                f"missing_labels={missing_labels[:5]}, missing_images={missing_images[:5]}"
-            )
-
-        split_samples: list[DatasetSample] = []
-        for image_path in image_paths:
-            sample = source_samples_by_stem.get(image_path.stem)
-            if sample is None:
-                raise RuntimeError(
-                    f"Stem '{image_path.stem}' from {stage_dir} split '{split_name}' "
-                    "was not found in the source dataset."
+    def _cleanup_stale_outputs(self) -> None:
+        stale_dirs = [
+            self._config.layout.datasets_root / "stage2",
+            self._config.layout.datasets_root / "stage3",
+        ]
+        for stale_dir in stale_dirs:
+            if stale_dir.exists():
+                print(
+                    f"Found stale dataset folder: {stale_dir}. "
+                    "Removing before regeneration from data_raw..."
                 )
-            split_samples.append(sample)
-        return split_samples
+                self._safe_rmtree(stale_dir)
+
+    def _safe_rmtree(self, path: Path, retries: int = 4, retry_sleep_seconds: float = 0.4) -> None:
+        last_error: Exception | None = None
+        for attempt in range(1, retries + 1):
+            try:
+                shutil.rmtree(path)
+                return
+            except Exception as exc:  # pragma: no cover - platform specific
+                last_error = exc
+                if attempt == retries:
+                    break
+                print(
+                    f"  Delete retry {attempt}/{retries - 1} for {path} "
+                    f"(reason: {type(exc).__name__})."
+                )
+                time.sleep(retry_sleep_seconds)
+        raise RuntimeError(f"Failed to remove directory after retries: {path}") from last_error
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     defaults = DatasetPreparationConfig.default()
     parser = argparse.ArgumentParser(
         description=(
-            "Prepare stage1/stage2/stage3 datasets with a deterministic split chain: "
-            "stage2 uses stage1 split and stage3 uses stage2 split."
+            "Prepare stage1 YOLO dataset and pre-cropped classification datasets "
+            "(stage2_material/stage3_denomination)."
         )
     )
     parser.add_argument(
@@ -718,7 +954,16 @@ def _parse_args() -> argparse.Namespace:
         default=defaults.test_ratio,
         help=f"Test split ratio (default: {defaults.test_ratio}).",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--shared-stage-split",
+        action="store_true",
+        default=defaults.shared_stage_split,
+        help=(
+            "Reuse the same train/val/test image split for stage1/stage2_material/"
+            "stage3_denomination. Default is False: each export gets its own deterministic split."
+        ),
+    )
+    return parser.parse_args(argv)
 
 
 def _config_from_args(args: argparse.Namespace) -> DatasetPreparationConfig:
@@ -729,12 +974,13 @@ def _config_from_args(args: argparse.Namespace) -> DatasetPreparationConfig:
         train_ratio=args.train_ratio,
         val_ratio=args.val_ratio,
         test_ratio=args.test_ratio,
+        shared_stage_split=args.shared_stage_split,
         image_extensions=defaults.image_extensions,
     )
 
 
-def main() -> None:
-    args = _parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = _parse_args(argv)
     pipeline = DatasetPreparationPipeline(_config_from_args(args))
     report = pipeline.run()
     report.print_console()

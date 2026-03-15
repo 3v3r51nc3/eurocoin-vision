@@ -326,74 +326,82 @@ Evaluation is implemented in `ml_pipeline/evaluate_model.ipynb`, which loads pub
 
 Latest report:
 
-- `ml_pipeline/results/evaluation_report_20260314_234921.json`
-- created at: `2026-03-14T23:49:21`
+- `ml_pipeline/results/evaluation_report_20260315_160709.json`
+- created at: `2026-03-15T16:07:09`
 - device: `CPU` (`torch-2.10.0+cpu`)
-- evaluated split: `test` (`15` images, `168` coin instances)
+- evaluated split: `test` (`15` images, `164` coin instances)
+
+Root cause of the previous quality drop (now fixed):
+
+- a subset of dataset annotations was incorrect
+- some dataset images had EXIF rotation/orientation mismatches
+- this created label/pixel misalignment, which propagated errors through all pipeline stages
 
 ### 7.1 Stage Metrics
 
 | Component | Metric | Value |
 | --- | --- | ---: |
-| Stage 1 detector | precision | `0.9882` |
-| Stage 1 detector | recall | `0.9995` |
-| Stage 1 detector | mAP50 | `0.9924` |
-| Stage 1 detector | mAP50-95 | `0.9254` |
-| Stage 2 on GT boxes | material accuracy | `0.9048` |
-| Stage 3 on GT boxes (oracle material) | denomination accuracy | `0.7560` |
-| Stage 3 on GT boxes (hierarchical) | denomination accuracy | `0.7083` |
+| Stage 1 detector | precision | `0.9937` |
+| Stage 1 detector | recall | `1.0000` |
+| Stage 1 detector | mAP50 | `0.9950` |
+| Stage 1 detector | mAP50-95 | `0.9251` |
+| Stage 2 on GT boxes | material accuracy | `0.9219` |
+| Stage 3 on GT boxes (oracle material) | denomination accuracy | `0.8659` |
+| Stage 3 on GT boxes (hierarchical) | denomination accuracy | `0.8232` |
 
 Per-material Stage 3 hierarchical accuracy on GT boxes:
 
 | Material | Accuracy |
 | --- | ---: |
-| `bicolor` | `0.8462` |
-| `gold` | `0.7532` |
-| `bronze` | `0.5385` |
+| `bicolor` | `0.8000` |
+| `gold` | `0.8485` |
+| `bronze` | `0.8095` |
 
 ### 7.2 Full Pipeline Metrics
 
 | Area | Metric | Value |
 | --- | --- | ---: |
-| Detection | precision | `0.9273` |
-| Detection | recall | `0.9107` |
-| Detection | F1 | `0.9189` |
-| Detection | mean IoU (matched) | `0.9438` |
-| Detection | TP / FP / FN | `153 / 12 / 15` |
-| Classification on matched detections | Stage 2 material accuracy | `0.9346` |
-| Classification on matched detections | Stage 3 denomination accuracy | `0.7386` |
-| End-to-end | precision | `0.6848` |
-| End-to-end | recall | `0.6726` |
-| End-to-end | F1 | `0.6787` |
-| End-to-end | exact image match rate | `0.1333` |
-| End-to-end | TP / FP / FN | `113 / 52 / 55` |
+| Detection | precision | `0.8902` |
+| Detection | recall | `0.8902` |
+| Detection | F1 | `0.8902` |
+| Detection | mean IoU (matched) | `0.9419` |
+| Detection | TP / FP / FN | `146 / 18 / 18` |
+| Classification on matched detections | Stage 2 material accuracy | `0.9589` |
+| Classification on matched detections | Stage 3 denomination accuracy | `0.8836` |
+| End-to-end | precision | `0.7866` |
+| End-to-end | recall | `0.7866` |
+| End-to-end | F1 | `0.7866` |
+| End-to-end | exact image match rate | `0.3333` |
+| End-to-end | TP / FP / FN | `129 / 35 / 35` |
 
 Per-class end-to-end recall:
 
 | Class | Recall |
 | --- | ---: |
-| `1_cent` | `0.1250` |
-| `2_cent` | `0.7222` |
-| `5_cent` | `0.7222` |
-| `10_cent` | `0.7692` |
-| `20_cent` | `0.6923` |
-| `50_cent` | `0.6400` |
-| `1_euro` | `0.8095` |
-| `2_euro` | `0.7778` |
+| `1_cent` | `0.6429` |
+| `2_cent` | `0.8846` |
+| `5_cent` | `0.6957` |
+| `10_cent` | `0.8929` |
+| `20_cent` | `0.8421` |
+| `50_cent` | `0.6842` |
+| `1_euro` | `0.7368` |
+| `2_euro` | `0.8125` |
+
+Reminder: update screenshot `assets/screenshots/04_evaluation_metrics.png` to match this latest report.
 
 ## 8. Known Limitations and Priority Work
 
-- Bronze denomination quality is the weakest point.
+- Lowest denomination recalls are still `1_cent`, `5_cent`, and `50_cent`.
 
-  Evidence: hierarchical Stage 3 accuracy on GT boxes is only `0.5385` for `bronze`, and end-to-end recall for `1_cent` is `0.1250` (worst class by a wide margin). The dataset currently contains significantly fewer bronze coins than other categories, which limits the model's ability to learn robust bronze representations. Increasing the number and diversity of bronze coin samples is expected to improve performance.
+  Evidence: end-to-end recalls are `0.6429`, `0.6957`, and `0.6842`, respectively. These classes remain priority targets for hard-example mining and more balanced coverage.
 
-- End-to-end quality drops mainly because of classification errors after correct detection.
+- End-to-end quality still drops because of classification errors after correct detection.
 
-  Evidence: detector finds `153` true matches, but only `113` become fully correct denomination predictions. That `40`-coin gap dominates final `FP/FN` growth (`52/55`) and limits exact-image success to `13.33%`.
+  Evidence: detector finds `146` true matches, but only `129` become fully correct denomination predictions. That `17`-coin gap still contributes to final `FP/FN` (`35/35`) and limits exact-image success to `33.33%`.
 
-- Hierarchical routing introduces additional error on top of denomination classification.
+- Hierarchical routing still introduces additional error on top of denomination classification.
 
-  Evidence: Stage 3 denomination accuracy decreases from `0.7560` (oracle material) to `0.7083` (predicted material), indicating non-trivial error propagation from Stage 2 to Stage 3.
+  Evidence: Stage 3 denomination accuracy decreases from `0.8659` (oracle material) to `0.8232` (predicted material), indicating residual error propagation from Stage 2 to Stage 3.
 
 ## 9. Repository Structure
 
@@ -448,7 +456,7 @@ eurocoin-vision/
 - expand bronze and low-value coin data (`1_cent`, `2_cent`, `5_cent`) with higher intra-class diversity
 - rebalance Stage 3 training with class-aware sampling and/or weighted loss for bronze subsets
 - improve Stage 2 routing robustness to reduce oracle-vs-hierarchical accuracy gap
-- tune Stage 1 inference settings and retraining strategy to reduce residual misses (`15 FN`) and extra detections (`12 FP`)
+- tune Stage 1 inference settings and retraining strategy to reduce residual misses (`18 FN`) and extra detections (`18 FP`)
 - keep reporting standardized end-to-end metrics from `evaluate_model.ipynb` for every model update
 - optimize inference throughput for near real-time usage on CPU
 

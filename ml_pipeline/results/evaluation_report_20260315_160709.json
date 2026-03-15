@@ -1,0 +1,177 @@
+{
+  "created_at": "2026-03-15T16:07:09",
+  "device": "cpu",
+  "artifacts": {
+    "stage1": "eurocoin-vision\\model_weights\\stage1\\stage1_yolov8n_best.pt",
+    "stage2": "eurocoin-vision\\model_weights\\stage2\\stage2_resnet18_checkpoint.pt",
+    "stage3_manifest": "eurocoin-vision\\model_weights\\stage3\\stage3_resnet18_hierarchical.yaml",
+    "stage3_by_material": {
+      "bronze": "eurocoin-vision\\model_weights\\stage3_bronze\\stage3_resnet18_bronze_checkpoint.pt",
+      "gold": "eurocoin-vision\\model_weights\\stage3_gold\\stage3_resnet18_gold_checkpoint.pt",
+      "bicolor": "eurocoin-vision\\model_weights\\stage3_bicolor\\stage3_resnet18_bicolor_checkpoint.pt"
+    }
+  },
+  "stage1": {
+    "split_used": "test",
+    "overall": {
+      "precision": 0.9936848700046654,
+      "recall": 1.0,
+      "map50": 0.995,
+      "map50_95": 0.9251264219750404,
+      "fitness": 0.9251264219750404
+    },
+    "raw": {
+      "metrics/precision(B)": 0.9936848700046654,
+      "metrics/recall(B)": 1.0,
+      "metrics/mAP50(B)": 0.995,
+      "metrics/mAP50-95(B)": 0.9251264219750404,
+      "fitness": 0.9251264219750404
+    }
+  },
+  "stage2": {
+    "split_used": "test",
+    "split_source": "eurocoin-vision\\ml_pipeline\\datasets\\stage2_material",
+    "by_material": {
+      "bicolor": {
+        "support": 26,
+        "correct": 25,
+        "predicted": 26,
+        "precision": 0.9615384615384616,
+        "recall": 0.9615384615384616,
+        "f1": 0.9615384615384616
+      },
+      "bronze": {
+        "support": 49,
+        "correct": 48,
+        "predicted": 56,
+        "precision": 0.8571428571428571,
+        "recall": 0.9795918367346939,
+        "f1": 0.9142857142857143
+      },
+      "gold": {
+        "support": 53,
+        "correct": 45,
+        "predicted": 46,
+        "precision": 0.9782608695652174,
+        "recall": 0.8490566037735849,
+        "f1": 0.9090909090909092
+      }
+    },
+    "overall": {
+      "images_evaluated": 128,
+      "correct": 118,
+      "accuracy": 0.921875,
+      "macro_precision": 0.9323140627488454,
+      "macro_recall": 0.9300623006822467,
+      "macro_f1": 0.9283050283050284
+    }
+  },
+  "stage3": {
+    "split_used": "test",
+    "split_source": "eurocoin-vision\\ml_pipeline\\datasets\\stage3_denomination",
+    "by_denomination": {
+      "10_cent": {
+        "support": 28,
+        "stage2_material_accuracy": 0.8928571428571429,
+        "stage3_oracle_accuracy": 0.9285714285714286,
+        "stage3_hierarchical_accuracy": 0.8928571428571429
+      },
+      "1_cent": {
+        "support": 14,
+        "stage2_material_accuracy": 1.0,
+        "stage3_oracle_accuracy": 0.7857142857142857,
+        "stage3_hierarchical_accuracy": 0.7857142857142857
+      },
+      "1_euro": {
+        "support": 19,
+        "stage2_material_accuracy": 0.7368421052631579,
+        "stage3_oracle_accuracy": 0.8421052631578947,
+        "stage3_hierarchical_accuracy": 0.7368421052631579
+      },
+      "20_cent": {
+        "support": 19,
+        "stage2_material_accuracy": 0.9473684210526315,
+        "stage3_oracle_accuracy": 1.0,
+        "stage3_hierarchical_accuracy": 0.9473684210526315
+      },
+      "2_cent": {
+        "support": 26,
+        "stage2_material_accuracy": 0.9615384615384616,
+        "stage3_oracle_accuracy": 0.9615384615384616,
+        "stage3_hierarchical_accuracy": 0.9230769230769231
+      },
+      "2_euro": {
+        "support": 16,
+        "stage2_material_accuracy": 0.875,
+        "stage3_oracle_accuracy": 0.9375,
+        "stage3_hierarchical_accuracy": 0.875
+      },
+      "50_cent": {
+        "support": 19,
+        "stage2_material_accuracy": 0.8947368421052632,
+        "stage3_oracle_accuracy": 0.7368421052631579,
+        "stage3_hierarchical_accuracy": 0.6842105263157895
+      },
+      "5_cent": {
+        "support": 23,
+        "stage2_material_accuracy": 0.8260869565217391,
+        "stage3_oracle_accuracy": 0.6956521739130435,
+        "stage3_hierarchical_accuracy": 0.6956521739130435
+      }
+    },
+    "overall": {
+      "objects_evaluated": 164,
+      "stage2_material_accuracy": 0.8902439024390244,
+      "stage3_oracle_accuracy": 0.8658536585365854,
+      "stage3_hierarchical_accuracy": 0.823170731707317,
+      "stage3_hierarchical_accuracy_by_material": {
+        "bicolor": 0.8,
+        "bronze": 0.8095238095238095,
+        "gold": 0.8484848484848485
+      }
+    }
+  },
+  "end_to_end": {
+    "split_used": "test",
+    "split_source": "eurocoin-vision\\ml_pipeline\\datasets\\stage3_denomination",
+    "counts": {
+      "images_evaluated": 15,
+      "objects_ground_truth": 164,
+      "objects_predicted": 164,
+      "matched_detections": 146,
+      "matching_iou_threshold": 0.5
+    },
+    "detection": {
+      "precision": 0.8902439024390244,
+      "recall": 0.8902439024390244,
+      "f1": 0.8902439024390244,
+      "mean_iou_matched": 0.9419024221152353,
+      "tp": 146,
+      "fp": 18,
+      "fn": 18
+    },
+    "classification_on_matched_detections": {
+      "stage2_material_accuracy": 0.958904109589041,
+      "stage3_denomination_accuracy": 0.8835616438356164
+    },
+    "overall": {
+      "precision": 0.7865853658536586,
+      "recall": 0.7865853658536586,
+      "f1": 0.7865853658536586,
+      "exact_image_match_rate": 0.3333333333333333,
+      "tp_correct_coin": 129,
+      "fp": 35,
+      "fn": 35
+    },
+    "per_denomination_recall": {
+      "10_cent": 0.8928571428571429,
+      "1_cent": 0.6428571428571429,
+      "1_euro": 0.7368421052631579,
+      "20_cent": 0.8421052631578947,
+      "2_cent": 0.8846153846153846,
+      "2_euro": 0.8125,
+      "50_cent": 0.6842105263157895,
+      "5_cent": 0.6956521739130435
+    }
+  }
+}
