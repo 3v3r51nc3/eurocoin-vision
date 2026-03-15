@@ -387,8 +387,6 @@ Per-class end-to-end recall:
 | `1_euro` | `0.7368` |
 | `2_euro` | `0.8125` |
 
-Reminder: update screenshot `assets/screenshots/04_evaluation_metrics.png` to match this latest report.
-
 ## 8. Known Limitations and Priority Work
 
 - Lowest denomination recalls are still `1_cent`, `5_cent`, and `50_cent`.
