@@ -389,17 +389,17 @@ Per-class end-to-end recall:
 
 ## 8. Known Limitations and Priority Work
 
-- Lowest denomination recalls are still `1_cent`, `5_cent`, and `50_cent`.
+- End-to-end errors are split between localization and denomination mistakes.
 
-  Evidence: end-to-end recalls are `0.6429`, `0.6957`, and `0.6842`, respectively. These classes remain priority targets for hard-example mining and more balanced coverage.
+  Evidence: detection contributes `18 FP + 18 FN` (`36` localization errors), and classification on matched detections adds `17` wrong denominations (`146` matched vs `129` fully correct). Both parts must improve to raise exact-image success (`0.3333`).
 
-- End-to-end quality still drops because of classification errors after correct detection.
+- Lowest per-class end-to-end recalls are `1_cent`, `50_cent`, `5_cent`, then `1_euro`.
 
-  Evidence: detector finds `146` true matches, but only `129` become fully correct denomination predictions. That `17`-coin gap still contributes to final `FP/FN` (`35/35`) and limits exact-image success to `33.33%`.
+  Evidence: recalls are `0.6429`, `0.6842`, `0.6957`, and `0.7368`, respectively. These classes remain the primary targets for data balancing and hard-example mining.
 
-- Hierarchical routing still introduces additional error on top of denomination classification.
+- Hierarchical routing still causes measurable propagation error.
 
-  Evidence: Stage 3 denomination accuracy decreases from `0.8659` (oracle material) to `0.8232` (predicted material), indicating residual error propagation from Stage 2 to Stage 3.
+  Evidence: Stage 3 denomination accuracy drops from `0.8659` with oracle material to `0.8232` with predicted material (absolute gap: `0.0427`).
 
 ## 9. Repository Structure
 
