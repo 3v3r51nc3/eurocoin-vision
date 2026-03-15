@@ -71,3 +71,4 @@ ml_pipeline/datasets/**
 !ml_pipeline/data_raw/
 
 model_weights/stage3
+ml_pipeline/upload_raw_dataset.py

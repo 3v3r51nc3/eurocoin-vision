@@ -8,8 +8,8 @@ from webapp.models.pipeline_prediction import PipelinePrediction
 
 
 class PredictionAnnotationService:
-    _MIN_FONT_SIZE = 24
-    _FONT_SCALE = 0.055
+    _MIN_FONT_SIZE = 12
+    _FONT_SCALE = 0.025
     _MIN_ELLIPSE_WIDTH = 4
     _ELLIPSE_WIDTH_SCALE = 0.01
     _DEFAULT_STYLE = {
