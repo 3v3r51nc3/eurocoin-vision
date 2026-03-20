@@ -316,6 +316,89 @@ class DatasetSplitter:
         )
 
 
+def _validate_yolo_box(
+    label_path: Path,
+    line_number: int,
+    x_center: float,
+    y_center: float,
+    width: float,
+    height: float,
+) -> None:
+    values = {
+        "x_center": x_center,
+        "y_center": y_center,
+        "width": width,
+        "height": height,
+    }
+    for field_name, value in values.items():
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(
+                f"Invalid YOLO value in {label_path} at line {line_number}: "
+                f"{field_name}={value} is outside [0, 1]"
+            )
+
+    if width <= 0.0 or height <= 0.0:
+        raise ValueError(
+            f"Invalid YOLO box in {label_path} at line {line_number}: "
+            f"width={width}, height={height}, expected both > 0"
+        )
+
+    left = x_center - width / 2
+    right = x_center + width / 2
+    top = y_center - height / 2
+    bottom = y_center + height / 2
+    if left < 0.0 or right > 1.0 or top < 0.0 or bottom > 1.0:
+        raise ValueError(
+            f"Invalid YOLO box extent in {label_path} at line {line_number}: "
+            f"box=({left}, {top}, {right}, {bottom}) must stay inside the image"
+        )
+
+
+def _parse_label_lines(
+    label_path: Path,
+    class_catalog: SourceClassCatalog,
+) -> list[ParsedLabel]:
+    parsed: list[ParsedLabel] = []
+
+    for line_number, raw_line in enumerate(
+        label_path.read_text(encoding="utf-8").splitlines(),
+        start=1,
+    ):
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        parts = line.split()
+        if len(parts) != 5:
+            raise ValueError(
+                f"Invalid YOLO label format in {label_path} at line {line_number}: {raw_line!r}"
+            )
+
+        source_id = int(parts[0])
+        class_name = class_catalog.name_for_id(source_id)
+        x_center, y_center, width, height = map(float, parts[1:])
+        _validate_yolo_box(
+            label_path=label_path,
+            line_number=line_number,
+            x_center=x_center,
+            y_center=y_center,
+            width=width,
+            height=height,
+        )
+        parsed.append(
+            ParsedLabel(
+                source_id=source_id,
+                class_name=class_name,
+                x_center=x_center,
+                y_center=y_center,
+                width=width,
+                height=height,
+            )
+        )
+
+    return parsed
+
+
 class StageDatasetExporter:
     def __init__(self, datasets_root: Path) -> None:
         self._datasets_root = datasets_root
@@ -372,7 +455,7 @@ class StageDatasetExporter:
         written_label_count = 0
 
         for sample in samples:
-            parsed_lines = self._parse_label_lines(sample.label_path, class_catalog)
+            parsed_lines = _parse_label_lines(sample.label_path, class_catalog)
             label_lines = self._build_stage_label_lines(parsed_lines, stage_config)
 
             self._write_stage_image(
@@ -399,51 +482,6 @@ class StageDatasetExporter:
         )
         return counts
 
-    def _parse_label_lines(
-        self,
-        label_path: Path,
-        class_catalog: SourceClassCatalog,
-    ) -> list[ParsedLabel]:
-        parsed: list[ParsedLabel] = []
-
-        for line_number, raw_line in enumerate(
-            label_path.read_text(encoding="utf-8").splitlines(),
-            start=1,
-        ):
-            line = raw_line.strip()
-            if not line:
-                continue
-
-            parts = line.split()
-            if len(parts) != 5:
-                raise ValueError(
-                    f"Invalid YOLO label format in {label_path} at line {line_number}: {raw_line!r}"
-                )
-
-            source_id = int(parts[0])
-            class_name = class_catalog.name_for_id(source_id)
-            x_center, y_center, width, height = map(float, parts[1:])
-            self._validate_yolo_box(
-                label_path=label_path,
-                line_number=line_number,
-                x_center=x_center,
-                y_center=y_center,
-                width=width,
-                height=height,
-            )
-            parsed.append(
-                ParsedLabel(
-                    source_id=source_id,
-                    class_name=class_name,
-                    x_center=x_center,
-                    y_center=y_center,
-                    width=width,
-                    height=height,
-                )
-            )
-
-        return parsed
-
     def _build_stage_label_lines(
         self,
         parsed_lines: list[ParsedLabel],
@@ -456,44 +494,6 @@ class StageDatasetExporter:
             transformed.append(f"{stage_id} {' '.join(parsed_label.yolo_coords)}")
 
         return transformed
-
-    def _validate_yolo_box(
-        self,
-        label_path: Path,
-        line_number: int,
-        x_center: float,
-        y_center: float,
-        width: float,
-        height: float,
-    ) -> None:
-        values = {
-            "x_center": x_center,
-            "y_center": y_center,
-            "width": width,
-            "height": height,
-        }
-        for field_name, value in values.items():
-            if not 0.0 <= value <= 1.0:
-                raise ValueError(
-                    f"Invalid YOLO value in {label_path} at line {line_number}: "
-                    f"{field_name}={value} is outside [0, 1]"
-                )
-
-        if width <= 0.0 or height <= 0.0:
-            raise ValueError(
-                f"Invalid YOLO box in {label_path} at line {line_number}: "
-                f"width={width}, height={height}, expected both > 0"
-            )
-
-        left = x_center - width / 2
-        right = x_center + width / 2
-        top = y_center - height / 2
-        bottom = y_center + height / 2
-        if left < 0.0 or right > 1.0 or top < 0.0 or bottom > 1.0:
-            raise ValueError(
-                f"Invalid YOLO box extent in {label_path} at line {line_number}: "
-                f"box=({left}, {top}, {right}, {bottom}) must stay inside the image"
-            )
 
     def _validate_written_split(
         self,
@@ -618,7 +618,7 @@ class ClassificationDatasetExporter:
     ) -> Counter:
         counts: Counter = Counter()
         for sample in samples:
-            parsed_labels = self._parse_label_lines(sample.label_path, class_catalog)
+            parsed_labels = _parse_label_lines(sample.label_path, class_catalog)
             if not parsed_labels:
                 continue
 
@@ -653,87 +653,6 @@ class ClassificationDatasetExporter:
                 "Check source labels and YOLO boxes."
             )
         return counts
-
-    def _parse_label_lines(
-        self,
-        label_path: Path,
-        class_catalog: SourceClassCatalog,
-    ) -> list[ParsedLabel]:
-        parsed: list[ParsedLabel] = []
-        for line_number, raw_line in enumerate(
-            label_path.read_text(encoding="utf-8").splitlines(),
-            start=1,
-        ):
-            line = raw_line.strip()
-            if not line:
-                continue
-
-            parts = line.split()
-            if len(parts) != 5:
-                raise ValueError(
-                    f"Invalid YOLO label format in {label_path} at line {line_number}: {raw_line!r}"
-                )
-
-            source_id = int(parts[0])
-            class_name = class_catalog.name_for_id(source_id)
-            x_center, y_center, width, height = map(float, parts[1:])
-            self._validate_yolo_box(
-                label_path=label_path,
-                line_number=line_number,
-                x_center=x_center,
-                y_center=y_center,
-                width=width,
-                height=height,
-            )
-            parsed.append(
-                ParsedLabel(
-                    source_id=source_id,
-                    class_name=class_name,
-                    x_center=x_center,
-                    y_center=y_center,
-                    width=width,
-                    height=height,
-                )
-            )
-        return parsed
-
-    def _validate_yolo_box(
-        self,
-        label_path: Path,
-        line_number: int,
-        x_center: float,
-        y_center: float,
-        width: float,
-        height: float,
-    ) -> None:
-        values = {
-            "x_center": x_center,
-            "y_center": y_center,
-            "width": width,
-            "height": height,
-        }
-        for field_name, value in values.items():
-            if not 0.0 <= value <= 1.0:
-                raise ValueError(
-                    f"Invalid YOLO value in {label_path} at line {line_number}: "
-                    f"{field_name}={value} is outside [0, 1]"
-                )
-
-        if width <= 0.0 or height <= 0.0:
-            raise ValueError(
-                f"Invalid YOLO box in {label_path} at line {line_number}: "
-                f"width={width}, height={height}, expected both > 0"
-            )
-
-        left = x_center - width / 2
-        right = x_center + width / 2
-        top = y_center - height / 2
-        bottom = y_center + height / 2
-        if left < 0.0 or right > 1.0 or top < 0.0 or bottom > 1.0:
-            raise ValueError(
-                f"Invalid YOLO box extent in {label_path} at line {line_number}: "
-                f"box=({left}, {top}, {right}, {bottom}) must stay inside the image"
-            )
 
     def _to_square_pixel_box(
         self,
