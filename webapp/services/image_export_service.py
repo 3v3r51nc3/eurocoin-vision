@@ -8,6 +8,7 @@ from PIL import Image
 
 class ImageExportService:
     def to_png_bytes(self, image_array: np.ndarray) -> bytes:
+        """Encode an RGB array as PNG and return the raw bytes."""
         image = Image.fromarray(image_array)
         buffer = BytesIO()
         image.save(buffer, format="PNG")

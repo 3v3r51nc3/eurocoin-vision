@@ -43,6 +43,7 @@ class PredictionAnnotationService:
         self._config = config
 
     def render(self, prediction: PipelinePrediction) -> np.ndarray:
+        """Draw ellipses and denomination labels on a copy of the input image."""
         annotated = prediction.input_image.copy()
         draw = ImageDraw.Draw(annotated)
         image_w, image_h = annotated.size
@@ -86,6 +87,7 @@ class PredictionAnnotationService:
 
     @staticmethod
     def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+        """Load a bold TrueType font at the given size, falling back to the PIL default."""
         font_candidates = [
             "arialbd.ttf",
             "segoeuib.ttf",
@@ -99,5 +101,6 @@ class PredictionAnnotationService:
         return ImageFont.load_default()
 
     def _style_for_material(self, material: str) -> dict[str, str]:
+        """Return the color style dict for the given material, defaulting to green."""
         normalized = material.strip().lower()
         return self._STYLE_BY_MATERIAL.get(normalized, self._DEFAULT_STYLE)

@@ -41,6 +41,7 @@ class ClassifierCheckpoint:
         )
 
     def predict(self, image: Image.Image) -> tuple[str, float]:
+        """Return the predicted class name and its softmax probability."""
         tensor = self._transform(image).unsqueeze(0).to(self.device)
         with torch.no_grad():
             logits = self.model(tensor)
@@ -68,6 +69,7 @@ class EuroCoinPipeline:
         iou_threshold: float,
         padding_ratio: float = 0.05,
     ) -> PipelinePrediction:
+        """Run the three-stage detection and classification pipeline on an image array."""
         image = Image.fromarray(image_array).convert("RGB")
         result = self._detector.predict(
             source=np.array(image),
@@ -114,6 +116,7 @@ class EuroCoinPipeline:
         image_height: int,
         padding_ratio: float,
     ) -> tuple[int, int, int, int]:
+        """Expand a bounding box by a fractional padding and clamp to image bounds."""
         left, top, right, bottom = [float(value) for value in box_xyxy]
         box_width = right - left
         box_height = bottom - top
@@ -134,6 +137,7 @@ class ModelInferenceService:
     @staticmethod
     @st.cache_resource(show_spinner=False)
     def _load_pipeline(base_dir: str) -> EuroCoinPipeline:
+        """Discover and load all model weights from model_weights/, cached across sessions."""
         base_path = Path(base_dir)
         model_weights_dir = base_path / "model_weights"
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -166,6 +170,7 @@ class ModelInferenceService:
 
     @staticmethod
     def _find_latest_file(root_dir: Path, pattern: str) -> Path:
+        """Return the most recently modified file matching pattern under root_dir."""
         if not root_dir.exists():
             raise FileNotFoundError(f"Missing directory: {root_dir}")
 
@@ -180,6 +185,7 @@ class ModelInferenceService:
 
     @staticmethod
     def _load_classifier_checkpoint(checkpoint_path: Path, device: torch.device) -> ClassifierCheckpoint:
+        """Load a ResNet18 checkpoint and return a ready-to-use ClassifierCheckpoint."""
         checkpoint = ModelInferenceService._torch_load(checkpoint_path, device)
         class_names = list(checkpoint["class_names"])
         image_size = int(checkpoint.get("image_size", 224))
@@ -199,12 +205,14 @@ class ModelInferenceService:
 
     @staticmethod
     def _torch_load(checkpoint_path: Path, device: torch.device) -> dict:
+        """Load a checkpoint file, adapting to torch.load API changes across versions."""
         load_kwargs: dict[str, object] = {"map_location": device}
         if "weights_only" in inspect.signature(torch.load).parameters:
             load_kwargs["weights_only"] = False
         return torch.load(checkpoint_path, **load_kwargs)
 
     def predict(self, image_array: np.ndarray, settings: InferenceSettings) -> PipelinePrediction:
+        """Run inference using the cached pipeline and the given inference settings."""
         pipeline = self._load_pipeline(str(self._config.base_dir))
         return pipeline.predict(
             image_array=image_array,

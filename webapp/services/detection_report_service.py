@@ -12,6 +12,7 @@ class DetectionReportService:
         self._config = config
 
     def build(self, prediction: PipelinePrediction) -> DetectionReport:
+        """Aggregate pipeline detections into per-coin rows, a denomination summary, and totals."""
         counts: Counter[str] = Counter()
         detection_rows: list[dict[str, str]] = []
 
@@ -60,5 +61,6 @@ class DetectionReportService:
         )
 
     def _sort_key(self, item: tuple[str, int]) -> tuple[int, str]:
+        """Sort denominations by ascending face value, with unknowns last."""
         label, _ = item
         return (self._config.denomination_cents.get(label, 10**9), label)

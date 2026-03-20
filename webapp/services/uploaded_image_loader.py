@@ -16,6 +16,7 @@ class UploadedImageLoader:
         self._config = config
 
     def load(self, uploaded_file: Any) -> Image.Image:
+        """Open a Streamlit uploaded file and return it as an RGB PIL image."""
         if uploaded_file is None:
             raise ImageLoadingError("No file was uploaded.")
 
